@@ -2,7 +2,7 @@
 #
 # build.sh - Linux/macOS Build Script
 #
-# This script automates the process of building and running the Docker container
+# This script automates the process of building and running the Podman container
 # with version information dynamically injected at build time.
 
 # Hidden feature: Preserve usage statistics across rebuilds
@@ -14,7 +14,33 @@ set -euo pipefail
 STATS_DIR="temp/stats"
 STATS_FILE="${STATS_DIR}/.usage_backup.json"
 SECRET_FILE="${STATS_DIR}/.api_secret"
+LOCAL_COMPOSE_OVERRIDE="temp/podman-compose.local.yml"
 WITH_USAGE=false
+COMPOSE_CMD=()
+
+detect_compose_cmd() {
+  if command -v podman-compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(podman-compose)
+    return
+  fi
+
+  if command -v podman >/dev/null 2>&1 && podman help compose >/dev/null 2>&1; then
+    COMPOSE_CMD=(podman compose)
+    return
+  fi
+
+  echo "Error: Podman Compose is required. Install either 'podman compose' support or 'podman-compose'."
+  exit 1
+}
+
+write_local_compose_override() {
+  mkdir -p "$(dirname "${LOCAL_COMPOSE_OVERRIDE}")"
+  cat > "${LOCAL_COMPOSE_OVERRIDE}" <<'EOF'
+services:
+  cli-proxy-api:
+    pull_policy: never
+EOF
+}
 
 get_port() {
   if [[ -f "config.yaml" ]]; then
@@ -123,6 +149,8 @@ case "${1:-}" in
     ;;
 esac
 
+detect_compose_cmd
+
 # --- Step 1: Choose Environment ---
 echo "Please select an option:"
 echo "1) Run using Pre-built Image (Recommended)"
@@ -136,13 +164,13 @@ case "$choice" in
     if [[ "${WITH_USAGE}" == "true" ]]; then
       export_stats
     fi
-    docker compose up -d --remove-orphans --no-build
+    "${COMPOSE_CMD[@]}" up -d --remove-orphans --no-build
     if [[ "${WITH_USAGE}" == "true" ]]; then
       wait_for_service
       import_stats
     fi
     echo "Services are starting from remote image."
-    echo "Run 'docker compose logs -f' to see the logs."
+    echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
     ;;
   2)
     echo "--- Building from Source and Running ---"
@@ -160,9 +188,10 @@ case "$choice" in
 
     # Build and start the services with a local-only image tag
     export CLI_PROXY_IMAGE="cli-proxy-api:local"
+    write_local_compose_override
 
-    echo "Building the Docker image..."
-    docker compose build \
+    echo "Building the Podman image..."
+    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f "${LOCAL_COMPOSE_OVERRIDE}" build \
       --build-arg VERSION="${VERSION}" \
       --build-arg COMMIT="${COMMIT}" \
       --build-arg BUILD_DATE="${BUILD_DATE}"
@@ -172,7 +201,7 @@ case "$choice" in
     fi
 
     echo "Starting the services..."
-    docker compose up -d --remove-orphans --pull never
+    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f "${LOCAL_COMPOSE_OVERRIDE}" up -d --remove-orphans
 
     if [[ "${WITH_USAGE}" == "true" ]]; then
       wait_for_service
@@ -180,7 +209,7 @@ case "$choice" in
     fi
 
     echo "Build complete. Services are starting."
-    echo "Run 'docker compose logs -f' to see the logs."
+    echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
     ;;
   *)
     echo "Invalid choice. Please enter 1 or 2."
