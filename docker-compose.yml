@@ -25,4 +25,4 @@ services:
       - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml:Z
       - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api:Z
       - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs:Z
-    restart: unless-stopped
+    restart: always

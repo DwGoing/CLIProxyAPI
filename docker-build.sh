@@ -144,9 +144,9 @@ ensure_container_restart_policy() {
   local current_policy
   current_policy=$(podman inspect -f '{{.HostConfig.RestartPolicy.Name}}' "${CONTAINER_NAME}" 2>/dev/null || true)
 
-  if [[ "${current_policy}" != "unless-stopped" ]]; then
-    echo "Applying restart policy (unless-stopped) to ${CONTAINER_NAME}..."
-    podman update --restart unless-stopped "${CONTAINER_NAME}" >/dev/null
+  if [[ "${current_policy}" != "always" ]]; then
+    echo "Applying restart policy (always) to ${CONTAINER_NAME}..."
+    podman update --restart always "${CONTAINER_NAME}" >/dev/null
   fi
 }
 
