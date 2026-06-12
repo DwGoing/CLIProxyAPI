@@ -5,10 +5,6 @@
 # This script automates the process of building and running the Podman container
 # with version information dynamically injected at build time.
 
-# Hidden feature: Preserve usage statistics across rebuilds
-# Usage: ./docker-build.sh --with-usage
-# First run prompts for management API key, saved to temp/stats/.api_secret
-
 set -euo pipefail
 
 STATS_DIR="temp/stats"
@@ -17,6 +13,7 @@ SECRET_FILE="${STATS_DIR}/.api_secret"
 LOCAL_COMPOSE_OVERRIDE="temp/podman-compose.local.yml"
 WITH_USAGE=false
 COMPOSE_CMD=()
+CONTAINER_NAME="cli-proxy-api"
 
 detect_compose_cmd() {
   if command -v podman-compose >/dev/null 2>&1; then
@@ -135,6 +132,24 @@ wait_for_service() {
   sleep 2
 }
 
+ensure_container_restart_policy() {
+  if ! command -v podman >/dev/null 2>&1; then
+    return
+  fi
+
+  if ! podman container exists "${CONTAINER_NAME}"; then
+    return
+  fi
+
+  local current_policy
+  current_policy=$(podman inspect -f '{{.HostConfig.RestartPolicy.Name}}' "${CONTAINER_NAME}" 2>/dev/null || true)
+
+  if [[ "${current_policy}" != "unless-stopped" ]]; then
+    echo "Applying restart policy (unless-stopped) to ${CONTAINER_NAME}..."
+    podman update --restart unless-stopped "${CONTAINER_NAME}" >/dev/null
+  fi
+}
+
 case "${1:-}" in
   "")
     ;;
@@ -165,6 +180,7 @@ case "$choice" in
       export_stats
     fi
     "${COMPOSE_CMD[@]}" up -d --remove-orphans --no-build
+    ensure_container_restart_policy
     if [[ "${WITH_USAGE}" == "true" ]]; then
       wait_for_service
       import_stats
@@ -202,6 +218,7 @@ case "$choice" in
 
     echo "Starting the services..."
     "${COMPOSE_CMD[@]}" -f docker-compose.yml -f "${LOCAL_COMPOSE_OVERRIDE}" up -d --remove-orphans
+    ensure_container_restart_policy
 
     if [[ "${WITH_USAGE}" == "true" ]]; then
       wait_for_service
