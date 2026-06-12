@@ -26,4 +26,4 @@ services:
 
         exec ./CLIProxyAPI -home-jwt "$$HOME_JWT"
       '
-    restart: unless-stopped
+    restart: always
