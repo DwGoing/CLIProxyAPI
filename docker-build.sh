@@ -192,7 +192,7 @@ case "$choice" in
     echo "--- Building from Source and Running ---"
 
     # Get Version Information
-    VERSION="$(git describe --tags --always --dirty)"
+    VERSION="${VERSION:-$(date +%Y%m%d-%H%M%S)}"
     COMMIT="$(git rev-parse --short HEAD)"
     BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -200,10 +200,12 @@ case "$choice" in
     echo "  Version: ${VERSION}"
     echo "  Commit: ${COMMIT}"
     echo "  Build Date: ${BUILD_DATE}"
+    echo "  Image: localhost/cli-proxy-api:${VERSION}"
     echo "----------------------------------------"
 
-    # Build and start the services with a local-only image tag
-    export CLI_PROXY_IMAGE="cli-proxy-api:local"
+    # Build and start the services with a timestamped local image tag by default.
+    # Set VERSION explicitly to override the generated timestamp.
+    export CLI_PROXY_IMAGE="localhost/cli-proxy-api:${VERSION}"
     write_local_compose_override
 
     echo "Building the Podman image..."
