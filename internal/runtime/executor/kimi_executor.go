@@ -36,8 +36,12 @@ type KimiExecutor struct {
 // NewKimiExecutor creates a new Kimi executor.
 func NewKimiExecutor(cfg *config.Config) *KimiExecutor {
 	return &KimiExecutor{
-		ClaudeExecutor: ClaudeExecutor{cfg: cfg, requestLogProvider: "kimi"},
-		cfg:            cfg,
+		ClaudeExecutor: ClaudeExecutor{
+			cfg:                     cfg,
+			requestLogProvider:      "kimi",
+			upstreamModelNormalizer: normalizeKimiUpstreamModel,
+		},
+		cfg: cfg,
 	}
 }
 
@@ -82,7 +86,6 @@ func (e *KimiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	from := opts.SourceFormat
 	if from.String() == "claude" {
 		auth.Attributes["base_url"] = kimiauth.KimiAPIBaseURL
-		req.Model = normalizeKimiUpstreamModel(req.Model)
 		return e.ClaudeExecutor.Execute(ctx, auth, req, opts)
 	}
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
@@ -193,7 +196,6 @@ func (e *KimiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 	from := opts.SourceFormat
 	if from.String() == "claude" {
 		auth.Attributes["base_url"] = kimiauth.KimiAPIBaseURL
-		req.Model = normalizeKimiUpstreamModel(req.Model)
 		return e.ClaudeExecutor.ExecuteStream(ctx, auth, req, opts)
 	}
 	responseFormat := cliproxyexecutor.ResponseFormatOrSource(opts)
@@ -335,7 +337,6 @@ func (e *KimiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 // CountTokens estimates token count for Kimi requests.
 func (e *KimiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
 	auth.Attributes["base_url"] = kimiauth.KimiAPIBaseURL
-	req.Model = normalizeKimiUpstreamModel(req.Model)
 	return e.ClaudeExecutor.CountTokens(ctx, auth, req, opts)
 }
 

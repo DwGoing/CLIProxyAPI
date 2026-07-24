@@ -476,23 +476,25 @@ func TestCodexWebsocketsExecuteStreamHandshakeErrorReturnsWithoutLockingSession(
 
 func TestExistingWebsocketSessionConnRequiresMatchingHealthyConnection(t *testing.T) {
 	conn := &websocket.Conn{}
+	closer := newWebsocketConnectionCloser(conn)
 	sess := &codexWebsocketSession{
-		conn:   conn,
-		authID: "auth-a",
-		wsURL:  "ws://example.test/responses",
+		conn:       conn,
+		connCloser: closer,
+		authID:     "auth-a",
+		wsURL:      "ws://example.test/responses",
 	}
 	sess.resetUpstreamDisconnectError(conn)
-	if got := existingWebsocketSessionConn(sess, "auth-a", "ws://example.test/responses"); got != conn {
+	if gotConn, gotCloser := existingWebsocketSessionConn(sess, "auth-a", "ws://example.test/responses"); gotConn != conn || gotCloser != closer {
 		t.Fatal("matching healthy websocket session was not reusable")
 	}
-	if got := existingWebsocketSessionConn(sess, "auth-b", "ws://example.test/responses"); got != nil {
+	if got, _ := existingWebsocketSessionConn(sess, "auth-b", "ws://example.test/responses"); got != nil {
 		t.Fatal("websocket session matched a different auth")
 	}
-	if got := existingWebsocketSessionConn(sess, "auth-a", "ws://other.test/responses"); got != nil {
+	if got, _ := existingWebsocketSessionConn(sess, "auth-a", "ws://other.test/responses"); got != nil {
 		t.Fatal("websocket session matched a different URL")
 	}
 	sess.setUpstreamDisconnectError(conn, errors.New("upstream disconnected"))
-	if got := existingWebsocketSessionConn(sess, "auth-a", "ws://example.test/responses"); got != nil {
+	if got, _ := existingWebsocketSessionConn(sess, "auth-a", "ws://example.test/responses"); got != nil {
 		t.Fatal("disconnected websocket session remained reusable")
 	}
 }
