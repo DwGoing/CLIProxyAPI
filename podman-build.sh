@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 #
-# podman-build.sh - Linux/macOS Podman Deployment Script
+# podman-build.sh - Linux/macOS Podman Build Script
 #
-# This script automates the process of building and running the Podman container
-# with version information dynamically injected at build time.
+# This script mirrors the simple docker-build.sh flow, but uses Podman and a
+# Podman-specific compose file so SELinux relabeling works on Linux hosts.
 
 set -euo pipefail
 
-STATS_DIR="temp/stats"
-STATS_FILE="${STATS_DIR}/.usage_backup.json"
-SECRET_FILE="${STATS_DIR}/.api_secret"
-LOCAL_COMPOSE_OVERRIDE="temp/podman-compose.local.yml"
-WITH_USAGE=false
+LOCAL_COMPOSE_FILE="temp/podman-compose.yml"
 COMPOSE_CMD=()
-CONTAINER_NAME="cli-proxy-api"
 
 detect_compose_cmd() {
   if command -v podman-compose >/dev/null 2>&1; then
@@ -30,141 +25,47 @@ detect_compose_cmd() {
   exit 1
 }
 
-write_local_compose_override() {
-  mkdir -p "$(dirname "${LOCAL_COMPOSE_OVERRIDE}")"
-  cat > "${LOCAL_COMPOSE_OVERRIDE}" <<'EOF'
+write_local_compose_file() {
+  mkdir -p "$(dirname "${LOCAL_COMPOSE_FILE}")"
+  cat > "${LOCAL_COMPOSE_FILE}" <<'EOF'
 services:
   cli-proxy-api:
-    pull_policy: never
+    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+    pull_policy: always
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    container_name: cli-proxy-api
+    environment:
+      DEPLOY: ${DEPLOY:-}
+    ports:
+      - "8317:8317"
+      - "8085:8085"
+      - "1455:1455"
+      - "54545:54545"
+      - "51121:51121"
+      - "11451:11451"
+    volumes:
+      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml:Z
+      - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api:Z
+      - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs:Z
+      - ${CLI_PROXY_PLUGIN_PATH:-./plugins}:/CLIProxyAPI/plugins:Z
+    restart: unless-stopped
 EOF
 }
 
-get_port() {
-  if [[ -f "config.yaml" ]]; then
-    grep -E "^port:" config.yaml | sed -E 's/^port: *["'"'"']?([0-9]+)["'"'"']?.*$/\1/'
-  else
-    echo "8317"
-  fi
-}
-
-export_stats_api_secret() {
-  if [[ -f "${SECRET_FILE}" ]]; then
-    API_SECRET=$(cat "${SECRET_FILE}")
-  else
-    if [[ ! -d "${STATS_DIR}" ]]; then
-      mkdir -p "${STATS_DIR}"
-    fi
-    echo "First time using --with-usage. Management API key required."
-    read -r -p "Enter management key: " -s API_SECRET
-    echo
-    echo "${API_SECRET}" > "${SECRET_FILE}"
-    chmod 600 "${SECRET_FILE}"
-  fi
-}
-
-check_container_running() {
-  local port
-  port=$(get_port)
-
-  if ! curl -s -o /dev/null -w "%{http_code}" "http://localhost:${port}/" | grep -q "200"; then
-    echo "Error: cli-proxy-api service is not responding at localhost:${port}"
-    echo "Please start the container first or use without --with-usage flag."
-    exit 1
-  fi
-}
-
-export_stats() {
-  local port
-  port=$(get_port)
-
-  if [[ ! -d "${STATS_DIR}" ]]; then
-    mkdir -p "${STATS_DIR}"
-  fi
-  check_container_running
-  echo "Exporting usage statistics..."
-  EXPORT_RESPONSE=$(curl -s -w "\n%{http_code}" -H "X-Management-Key: ${API_SECRET}" \
-    "http://localhost:${port}/v0/management/usage/export")
-  HTTP_CODE=$(echo "${EXPORT_RESPONSE}" | tail -n1)
-  RESPONSE_BODY=$(echo "${EXPORT_RESPONSE}" | sed '$d')
-
-  if [[ "${HTTP_CODE}" != "200" ]]; then
-    echo "Export failed (HTTP ${HTTP_CODE}): ${RESPONSE_BODY}"
-    exit 1
-  fi
-
-  echo "${RESPONSE_BODY}" > "${STATS_FILE}"
-  echo "Statistics exported to ${STATS_FILE}"
-}
-
-import_stats() {
-  local port
-  port=$(get_port)
-
-  echo "Importing usage statistics..."
-  IMPORT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-    -H "X-Management-Key: ${API_SECRET}" \
-    -H "Content-Type: application/json" \
-    -d @"${STATS_FILE}" \
-    "http://localhost:${port}/v0/management/usage/import")
-  IMPORT_CODE=$(echo "${IMPORT_RESPONSE}" | tail -n1)
-  IMPORT_BODY=$(echo "${IMPORT_RESPONSE}" | sed '$d')
-
-  if [[ "${IMPORT_CODE}" == "200" ]]; then
-    echo "Statistics imported successfully"
-  else
-    echo "Import failed (HTTP ${IMPORT_CODE}): ${IMPORT_BODY}"
-  fi
-
-  rm -f "${STATS_FILE}"
-}
-
-wait_for_service() {
-  local port
-  port=$(get_port)
-
-  echo "Waiting for service to be ready..."
-  for i in {1..30}; do
-    if curl -s -o /dev/null -w "%{http_code}" "http://localhost:${port}/" | grep -q "200"; then
-      break
-    fi
-    sleep 1
-  done
-  sleep 2
-}
-
-ensure_container_restart_policy() {
-  if ! command -v podman >/dev/null 2>&1; then
-    return
-  fi
-
-  if ! podman container exists "${CONTAINER_NAME}"; then
-    return
-  fi
-
-  local current_policy
-  current_policy=$(podman inspect -f '{{.HostConfig.RestartPolicy.Name}}' "${CONTAINER_NAME}" 2>/dev/null || true)
-
-  if [[ "${current_policy}" != "always" ]]; then
-    echo "Applying restart policy (always) to ${CONTAINER_NAME}..."
-    podman update --restart always "${CONTAINER_NAME}" >/dev/null
-  fi
-}
-
-case "${1:-}" in
-  "")
-    ;;
-  "--with-usage")
-    WITH_USAGE=true
-    export_stats_api_secret
-    ;;
-  *)
-    echo "Error: unknown option '${1}'. Did you mean '--with-usage'?"
-    echo "Usage: ./podman-build.sh [--with-usage]"
-    exit 1
-    ;;
-esac
+if [[ "${1:-}" != "" ]]; then
+  echo "Error: unknown option '${1}'."
+  echo "Usage: ./podman-build.sh"
+  exit 1
+fi
 
 detect_compose_cmd
+write_local_compose_file
 
 # --- Step 1: Choose Environment ---
 echo "Please select an option:"
@@ -176,23 +77,14 @@ read -r -p "Enter choice [1-2]: " choice
 case "$choice" in
   1)
     echo "--- Running with Pre-built Image ---"
-    if [[ "${WITH_USAGE}" == "true" ]]; then
-      export_stats
-    fi
-    "${COMPOSE_CMD[@]}" up -d --remove-orphans --no-build
-    ensure_container_restart_policy
-    if [[ "${WITH_USAGE}" == "true" ]]; then
-      wait_for_service
-      import_stats
-    fi
+    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans --no-build
     echo "Services are starting from remote image."
     echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
     ;;
   2)
     echo "--- Building from Source and Running ---"
 
-    # Get Version Information
-    VERSION="${VERSION:-$(date +%Y%m%d-%H%M%S)}"
+    VERSION="${VERSION:-$(git describe --tags --always --dirty)}"
     COMMIT="$(git rev-parse --short HEAD)"
     BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
@@ -203,29 +95,16 @@ case "$choice" in
     echo "  Image: localhost/cli-proxy-api:${VERSION}"
     echo "----------------------------------------"
 
-    # Build and start the services with a timestamped local image tag by default.
-    # Set VERSION explicitly to override the generated timestamp.
     export CLI_PROXY_IMAGE="localhost/cli-proxy-api:${VERSION}"
-    write_local_compose_override
 
     echo "Building the Podman image..."
-    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f "${LOCAL_COMPOSE_OVERRIDE}" build \
+    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" build \
       --build-arg VERSION="${VERSION}" \
       --build-arg COMMIT="${COMMIT}" \
       --build-arg BUILD_DATE="${BUILD_DATE}"
 
-    if [[ "${WITH_USAGE}" == "true" ]]; then
-      export_stats
-    fi
-
     echo "Starting the services..."
-    "${COMPOSE_CMD[@]}" -f docker-compose.yml -f "${LOCAL_COMPOSE_OVERRIDE}" up -d --remove-orphans
-    ensure_container_restart_policy
-
-    if [[ "${WITH_USAGE}" == "true" ]]; then
-      wait_for_service
-      import_stats
-    fi
+    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans --pull never
 
     echo "Build complete. Services are starting."
     echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
