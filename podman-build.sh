@@ -62,6 +62,13 @@ services:
 EOF
 }
 
+remove_existing_container() {
+  if podman container exists cli-proxy-api; then
+    echo "Removing existing cli-proxy-api container..."
+    podman rm -f cli-proxy-api
+  fi
+}
+
 if [[ "${1:-}" != "" ]]; then
   echo "Error: unknown option '${1}'."
   echo "Usage: ./podman-build.sh"
@@ -91,6 +98,7 @@ write_local_compose_file "${pull_policy}"
 case "$choice" in
   1)
     echo "--- Running with Pre-built Image ---"
+    remove_existing_container
     "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans --no-build
     echo "Services are starting from remote image."
     echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
@@ -118,6 +126,7 @@ case "$choice" in
       --build-arg BUILD_DATE="${BUILD_DATE}"
 
     echo "Starting the services..."
+    remove_existing_container
     "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans
 
     echo "Build complete. Services are starting."
