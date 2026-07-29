@@ -35,7 +35,7 @@ services:
     pull_policy: always
     build:
       context: ${PROJECT_DIR}
-      dockerfile: temp/Dockerfile.podman
+      dockerfile: Dockerfile
       args:
         GOPROXY: \${GOPROXY:-direct}
         VERSION: \${VERSION:-dev}
