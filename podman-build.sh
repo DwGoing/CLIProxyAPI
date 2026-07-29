@@ -106,7 +106,7 @@ case "$choice" in
       --build-arg BUILD_DATE="${BUILD_DATE}"
 
     echo "Starting the services..."
-    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans --pull never
+    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans
 
     echo "Build complete. Services are starting."
     echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
