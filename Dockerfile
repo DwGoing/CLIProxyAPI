@@ -2,7 +2,7 @@ FROM golang:1.26-bookworm AS builder
 
 WORKDIR /app
 
-ARG GOPROXY=direct
+ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=${GOPROXY}
 
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential git && rm -rf /var/lib/apt/lists/*

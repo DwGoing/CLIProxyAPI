@@ -37,7 +37,7 @@ services:
       context: ${PROJECT_DIR}
       dockerfile: Dockerfile
       args:
-        GOPROXY: \${GOPROXY:-direct}
+        GOPROXY: \${GOPROXY:-https://proxy.golang.org,direct}
         VERSION: \${VERSION:-dev}
         COMMIT: \${COMMIT:-none}
         BUILD_DATE: \${BUILD_DATE:-unknown}
