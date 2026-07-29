@@ -7,7 +7,8 @@
 
 set -euo pipefail
 
-LOCAL_COMPOSE_FILE="temp/podman-compose.yml"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_COMPOSE_FILE="${PROJECT_DIR}/temp/podman-compose.yml"
 COMPOSE_CMD=()
 
 detect_compose_cmd() {
@@ -27,21 +28,22 @@ detect_compose_cmd() {
 
 write_local_compose_file() {
   mkdir -p "$(dirname "${LOCAL_COMPOSE_FILE}")"
-  cat > "${LOCAL_COMPOSE_FILE}" <<'EOF'
+  cat > "${LOCAL_COMPOSE_FILE}" <<EOF
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
+    image: \${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
     pull_policy: always
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ${PROJECT_DIR}
+      dockerfile: temp/Dockerfile.podman
       args:
-        VERSION: ${VERSION:-dev}
-        COMMIT: ${COMMIT:-none}
-        BUILD_DATE: ${BUILD_DATE:-unknown}
+        GOPROXY: \${GOPROXY:-direct}
+        VERSION: \${VERSION:-dev}
+        COMMIT: \${COMMIT:-none}
+        BUILD_DATE: \${BUILD_DATE:-unknown}
     container_name: cli-proxy-api
     environment:
-      DEPLOY: ${DEPLOY:-}
+      DEPLOY: \${DEPLOY:-}
     ports:
       - "8317:8317"
       - "8085:8085"
@@ -50,10 +52,10 @@ services:
       - "51121:51121"
       - "11451:11451"
     volumes:
-      - ${CLI_PROXY_CONFIG_PATH:-./config.yaml}:/CLIProxyAPI/config.yaml:Z
-      - ${CLI_PROXY_AUTH_PATH:-./auths}:/root/.cli-proxy-api:Z
-      - ${CLI_PROXY_LOG_PATH:-./logs}:/CLIProxyAPI/logs:Z
-      - ${CLI_PROXY_PLUGIN_PATH:-./plugins}:/CLIProxyAPI/plugins:Z
+      - "\${CLI_PROXY_CONFIG_PATH:-${PROJECT_DIR}/config.yaml}:/CLIProxyAPI/config.yaml:Z"
+      - "\${CLI_PROXY_AUTH_PATH:-${PROJECT_DIR}/auths}:/root/.cli-proxy-api:Z"
+      - "\${CLI_PROXY_LOG_PATH:-${PROJECT_DIR}/logs}:/CLIProxyAPI/logs:Z"
+      - "\${CLI_PROXY_PLUGIN_PATH:-${PROJECT_DIR}/plugins}:/CLIProxyAPI/plugins:Z"
     restart: unless-stopped
 EOF
 }
