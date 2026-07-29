@@ -27,12 +27,14 @@ detect_compose_cmd() {
 }
 
 write_local_compose_file() {
+  local pull_policy="$1"
+
   mkdir -p "$(dirname "${LOCAL_COMPOSE_FILE}")"
   cat > "${LOCAL_COMPOSE_FILE}" <<EOF
 services:
   cli-proxy-api:
     image: \${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
-    pull_policy: always
+    pull_policy: ${pull_policy}
     build:
       context: ${PROJECT_DIR}
       dockerfile: Dockerfile
@@ -67,13 +69,23 @@ if [[ "${1:-}" != "" ]]; then
 fi
 
 detect_compose_cmd
-write_local_compose_file
 
 # --- Step 1: Choose Environment ---
 echo "Please select an option:"
 echo "1) Run using Pre-built Image (Recommended)"
 echo "2) Build from Source and Run (For Developers)"
 read -r -p "Enter choice [1-2]: " choice
+
+case "$choice" in
+  1) pull_policy="always" ;;
+  2) pull_policy="never" ;;
+  *)
+    echo "Invalid choice. Please enter 1 or 2."
+    exit 1
+    ;;
+esac
+
+write_local_compose_file "${pull_policy}"
 
 # --- Step 2: Execute based on choice ---
 case "$choice" in
@@ -110,9 +122,5 @@ case "$choice" in
 
     echo "Build complete. Services are starting."
     echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
-    ;;
-  *)
-    echo "Invalid choice. Please enter 1 or 2."
-    exit 1
     ;;
 esac
