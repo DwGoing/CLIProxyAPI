@@ -58,7 +58,7 @@ services:
       - "\${CLI_PROXY_AUTH_PATH:-${PROJECT_DIR}/auths}:/root/.cli-proxy-api:Z"
       - "\${CLI_PROXY_LOG_PATH:-${PROJECT_DIR}/logs}:/CLIProxyAPI/logs:Z"
       - "\${CLI_PROXY_PLUGIN_PATH:-${PROJECT_DIR}/plugins}:/CLIProxyAPI/plugins:Z"
-    restart: unless-stopped
+    restart: always
 EOF
 }
 
