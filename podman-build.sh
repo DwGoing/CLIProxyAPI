@@ -4,8 +4,11 @@
 #
 # This script mirrors the simple docker-build.sh flow, but uses Podman and a
 # Podman-specific compose file so SELinux relabeling works on Linux hosts.
+# It always builds from local source; there is no pre-built-image menu.
 
 set -euo pipefail
+
+GOPROXY_DEFAULT="https://goproxy.cn,https://proxy.golang.org,direct"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_COMPOSE_FILE="${PROJECT_DIR}/temp/podman-compose.yml"
@@ -39,7 +42,8 @@ services:
       context: ${PROJECT_DIR}
       dockerfile: Dockerfile
       args:
-        GOPROXY: \${GOPROXY:-https://proxy.golang.org,direct}
+        GOPROXY: \${GOPROXY:-${GOPROXY_DEFAULT}}
+        BUILD_VERBOSE: \${BUILD_VERBOSE:-0}
         VERSION: \${VERSION:-dev}
         COMMIT: \${COMMIT:-none}
         BUILD_DATE: \${BUILD_DATE:-unknown}
@@ -77,59 +81,44 @@ fi
 
 detect_compose_cmd
 
-# --- Step 1: Choose Environment ---
-echo "Please select an option:"
-echo "1) Run using Pre-built Image (Recommended)"
-echo "2) Build from Source and Run (For Developers)"
-read -r -p "Enter choice [1-2]: " choice
-
-case "$choice" in
-  1) pull_policy="always" ;;
-  2) pull_policy="never" ;;
-  *)
-    echo "Invalid choice. Please enter 1 or 2."
-    exit 1
-    ;;
-esac
-
+# Build from local source and run. The pre-built-image path is not offered.
+# After a successful build this still removes any existing cli-proxy-api
+# container and runs compose up -d, which replaces the running service.
+pull_policy="never"
 write_local_compose_file "${pull_policy}"
 
-# --- Step 2: Execute based on choice ---
-case "$choice" in
-  1)
-    echo "--- Running with Pre-built Image ---"
-    remove_existing_container
-    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans --no-build
-    echo "Services are starting from remote image."
-    echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
-    ;;
-  2)
-    echo "--- Building from Source and Running ---"
+echo "--- Building from Source and Running ---"
 
-    VERSION="${VERSION:-$(git describe --tags --always --dirty)}"
-    COMMIT="$(git rev-parse --short HEAD)"
-    BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+VERSION="${VERSION:-$(git describe --tags --always --dirty)}"
+COMMIT="$(git rev-parse --short HEAD)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    echo "Building with the following info:"
-    echo "  Version: ${VERSION}"
-    echo "  Commit: ${COMMIT}"
-    echo "  Build Date: ${BUILD_DATE}"
-    echo "  Image: localhost/cli-proxy-api:${VERSION}"
-    echo "----------------------------------------"
+echo "Building with the following info:"
+echo "  Version: ${VERSION}"
+echo "  Commit: ${COMMIT}"
+echo "  Build Date: ${BUILD_DATE}"
+echo "  Image: localhost/cli-proxy-api:${VERSION}"
+if [[ "${GOPROXY:-}" == *@* ]]; then
+  echo "  GOPROXY: <set, credentials omitted>"
+else
+  echo "  GOPROXY: ${GOPROXY:-${GOPROXY_DEFAULT}}"
+fi
+echo "  BUILD_VERBOSE: ${BUILD_VERBOSE:-0} (not a secret filter; leave 0 unless debugging)"
+echo "----------------------------------------"
 
-    export CLI_PROXY_IMAGE="localhost/cli-proxy-api:${VERSION}"
+export CLI_PROXY_IMAGE="localhost/cli-proxy-api:${VERSION}"
 
-    echo "Building the Podman image..."
-    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" build \
-      --build-arg VERSION="${VERSION}" \
-      --build-arg COMMIT="${COMMIT}" \
-      --build-arg BUILD_DATE="${BUILD_DATE}"
+echo "Building the Podman image..."
+"${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" build \
+  --build-arg GOPROXY="${GOPROXY:-${GOPROXY_DEFAULT}}" \
+  --build-arg BUILD_VERBOSE="${BUILD_VERBOSE:-0}" \
+  --build-arg VERSION="${VERSION}" \
+  --build-arg COMMIT="${COMMIT}" \
+  --build-arg BUILD_DATE="${BUILD_DATE}"
 
-    echo "Starting the services..."
-    remove_existing_container
-    "${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans
+echo "Starting the services..."
+remove_existing_container
+"${COMPOSE_CMD[@]}" -f "${LOCAL_COMPOSE_FILE}" up -d --remove-orphans
 
-    echo "Build complete. Services are starting."
-    echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
-    ;;
-esac
+echo "Build complete. Services are starting."
+echo "Run '${COMPOSE_CMD[*]} logs -f' to see the logs."
